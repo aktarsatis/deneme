@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Nöbetçi24 — Konum & Tahmini Ücret</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-sA+e2kG6k2b7g7qX3jF6m6QmQp8Ykz5wYkJm0QvY+3s=" crossorigin=""/>
+
+  <style>
+    :root{
+      --primary:#0f62fe;
+      --bg:#f7f9fc;
+      --card:#ffffff;
+      --muted:#6b6f76;
+    }
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, Arial, sans-serif;background:var(--bg);color:#111;}
+    .app{
+      max-width:1000px;margin:18px auto;padding:12px;
+    }
+    header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+    header h1{font-size:20px;margin:0}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .card{background:var(--card);border-radius:10px;box-shadow:0 6px 18px rgba(16,24,40,0.06);padding:12px;flex:1 1 320px}
+    #map{height:420px;border-radius:8px;border:1px solid #e6eef8;margin-top:10px}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    input[type="text"], input[type="number"], select{
+      width:100%;padding:8px;border:1px solid #e6eef8;border-radius:8px;font-size:14px;
+    }
+    button{background:var(--primary);color:white;border:none;padding:10px 14px;border-radius:8px;font-weight:600;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    .results{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .result-item{background:#f2f6ff;padding:10px;border-radius:8px;min-width:150px}
+    .small{font-size:12px;color:var(--muted)}
+    footer{margin-top:16px;font-size:13px;color:var(--muted)}
+    @media (max-width:720px){#map{height:320px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <img src="https://api.iconify.design/mdi/ambulance.svg?color=%230f62fe" alt="logo" width="36" height="36">
+      <div>
+        <h1>Nöbetçi24</h1>
+        <div class="small">Hedef seç → Mesafe, Süre, Tahmini Fiyat</div>
+      </div>
+    </header>
+
+    <div class="row">
+      <div class="card" style="max-width:420px;flex:0 0 420px">
+        <label for="txtAddress">Adres ile bul (opsiyonel)</label>
+        <div style="display:flex;gap:8px">
+          <input id="txtAddress" type="text" placeholder="Adres yazıp 'Bul' butonuna bas" />
+          <button id="btnFind">Bul</button>
+        </div>
+        <div style="height:8px"></div>
+
+        <label>Hedefi haritaya tıklayarak da seçebilirsin</label>
+        <div class="small">Hedefi kaldırmak için "Temizle"</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="btnClear" style="background:#e6eef8;color:var(--primary)">Temizle</button>
+          <button id="btnLocate" style="background:#0bda8a;color:#064">Konumum</button>
+        </div>
+
+        <hr style="margin:12px 0;border:none;border-top:1px solid #eef4ff">
+
+        <label>Fiyat Hesaplama Ayarları</label>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label class="small">Başlangıç ücreti (TL)</label>
+            <input id="baseFare" type="number" value="10" min="0" step="0.1">
+          </div>
+          <div style="flex:1">
+            <label class="small">Km başı ücret (TL)</label>
+            <input id="perKm" type="number" value="3.5" min="0" step="0.1">
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+        <label>Ortalama hız (km/saat) — süre hesaplama için</label>
+        <input id="avgSpeed" type="number" value="20" min="1" step="1">
+
+        <div class="results" id="results" style="margin-top:12px">
+          <div class="result-item">
+            <div class="small">Mesafe</div>
+            <div id="resDist">— km</div>
+          </div>
+          <div class="result-item">
+            <div class="small">Süre</div>
+            <div id="resTime">— dk</div>
+          </div>
+          <div class="result-item">
+            <div class="small">Tahmini Fiyat</div>
+            <div id="resFare">— TL</div>
+          </div>
+        </div>
+
+        <div style="height:8px"></div>
+        <div class="small">Not: Adres bulma için Nominatim (OpenStreetMap) kullanılıyor. CORS ve rate-limit olabilir.</div>
+      </div>
+
+      <div class="card" style="flex:1 1 520px">
+        <label>Harita</label>
+        <div id="map"></div>
+      </div>
+    </div>
+
+    <footer>
+      <div>Nasıl kullanılır: Uygulama açıldığında tarayıcı konum isteyebilir — kabul et. Haritaya tıklayarak hedefi seç, veya adres yazıp "Bul" a bas. "Konumum" ile güncel konum merkeze gelir.</div>
+      <div style="height:6px"></div>
+      <div class="small">Dosyayı Web Viewer ile göstermek için HTTPS URL'sini kullan. (GitHub Pages / Netlify önerilir.)</div>
+    </footer>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-o9N1j7k2vDk6b3s3Gk5r8z2sGxQyZ2qv7X0Eb8v+v3s=" crossorigin=""></script>
+
+  <script>
+    // ====== Basit global state ======
+    let map, userMarker = null, destMarker = null;
+    let currentLat = null, currentLon = null;
+    const results = {
+      distanceKm: null,
+      durationMin: null,
+      fare: null
+    };
+
+    // Initialize map
+    function initMap() {
+      map = L.map('map', { zoomControl: true });
+      // Use OpenStreetMap tiles
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      // default center (Istanbul) until we get position
+      map.setView([41.0082, 28.9784], 12);
+
+      // click to set destination
+      map.on('click', function(e) {
+        setDestination(e.latlng.lat, e.latlng.lng);
+      });
+    }
+
+    // Set / update user marker
+    function setUserMarker(lat, lon, center=true) {
+      currentLat = +lat; currentLon = +lon;
+      if (!userMarker) {
+        userMarker = L.marker([lat, lon], {title: "Sen"}).addTo(map).bindPopup("Sen (mevcut konum)");
+      } else {
+        userMarker.setLatLng([lat, lon]);
+      }
+      if (center) map.setView([lat, lon], 14);
+      updateCalculation();
+    }
+
+    // Set / update destination marker
+    function setDestination(lat, lon) {
+      if (!destMarker) {
+        destMarker = L.marker([lat, lon], {title: "Hedef", icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', iconSize:[25,41]})}).addTo(map).bindPopup("Hedef");
+      } else {
+        destMarker.setLatLng([lat, lon]);
+      }
+      // open popup
+      destMarker.openPopup();
+      fitMapToBoth();
+      updateCalculation();
+    }
+
+    function clearDestination() {
+      if (destMarker) {
+        map.removeLayer(destMarker);
+        destMarker = null;
+      }
+      document.getElementById('txtAddress').value = '';
+      resetResultsDisplay();
+    }
+
+    function fitMapToBoth() {
+      if (!userMarker || !destMarker) return;
+      const g = L.featureGroup([userMarker, destMarker]);
+      map.fitBounds(g.getBounds().pad(0.4));
+    }
+
+    // Haversine distance (km) — dikkatle hesaplanmış
+    function haversineKm(lat1, lon1, lat2, lon2) {
+      const toRad = v => v * Math.PI/180;
+      const R = 6371; // km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    // Update distance / time / fare if both points present
+    function updateCalculation() {
+      if (currentLat == null || currentLon == null || !destMarker) {
+        resetResultsDisplay();
+        return;
+      }
+      const destLatLng = destMarker.getLatLng();
+      const km = haversineKm(currentLat, currentLon, destLatLng.lat, destLatLng.lng);
+      const avgSpeed = Math.max(1, parseFloat(document.getElementById('avgSpeed').value || 20)); // km/h
+      const baseFare = parseFloat(document.getElementById('baseFare').value || 10);
+      const perKm = parseFloat(document.getElementById('perKm').value || 3.5);
+
+      const durationHours = km / avgSpeed;
+      const durationMin = durationHours * 60;
+      const fare = baseFare + (km * perKm);
+
+      results.distanceKm = km;
+      results.durationMin = durationMin;
+      results.fare = fare;
+
+      // update UI — yuvarla
+      document.getElementById('resDist').innerText = (Math.round(km * 100) / 100).toLocaleString('tr-TR') + ' km';
+      document.getElementById('resTime').innerText = Math.round(durationMin) + ' dk';
+      document.getElementById('resFare').innerText = (Math.round(fare * 100) / 100).toLocaleString('tr-TR') + ' TL';
+    }
+
+    function resetResultsDisplay() {
+      document.getElementById('resDist').innerText = '— km';
+      document.getElementById('resTime').innerText = '— dk';
+      document.getElementById('resFare').innerText = '— TL';
+      results.distanceKm = null;
+      results.durationMin = null;
+      results.fare = null;
+    }
+
+    // Use browser geolocation
+    function locateUser() {
+      if (!navigator.geolocation) {
+        alert('Tarayıcınız geolocation desteklemiyor.');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(function(pos) {
+        setUserMarker(pos.coords.latitude, pos.coords.longitude, true);
+      }, function(err) {
+        console.error('Geolocation error', err);
+        alert('Konum alınamadı. Lütfen tarayıcı/cihaz konum izinlerini kontrol et.');
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+    }
+
+    // Simple geocoding with Nominatim (OpenStreetMap)
+    async function geocodeAddress(address) {
+      // Nominatim usage: polite user-agent and referer ideally
+      try {
+        const q = encodeURIComponent(address);
+        const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
+        const resp = await fetch(url, {
+          headers: {
+            'Accept': 'application/json'
+            // Note: cannot set custom User-Agent in browser; Nominatim asks for identifying info in production.
+          }
+        });
+        if (!resp.ok) throw new Error('Geocoding hatası: ' + resp.status);
+        const arr = await resp.json();
+        if (arr && arr.length>0) {
+          const lat = parseFloat(arr[0].lat);
+          const lon = parseFloat(arr[0].lon);
+          return { lat, lon, display_name: arr[0].display_name };
+        } else {
+          return null;
+        }
+      } catch(e) {
+        console.error(e);
+        return null;
+      }
+    }
+
+    // ====== Event wiring ======
+    document.addEventListener('DOMContentLoaded', function(){
+      initMap();
+      // Try to locate user immediately
+      locateUser();
+
+      document.getElementById('btnLocate').addEventListener('click', function(){
+        locateUser();
+      });
+
+      document.getElementById('btnClear').addEventListener('click', function(){
+        clearDestination();
+      });
+
+      document.getElementById('btnFind').addEventListener('click', async function(){
+        const addr = document.getElementById('txtAddress').value.trim();
+        if (!addr) {
+          alert('Lütfen adres girin.');
+          return;
+        }
+        // show temporary popup while searching
+        const btn = this;
+        btn.disabled = true;
+        btn.innerText = 'Aranıyor...';
+        const found = await geocodeAddress(addr);
+        btn.disabled = false;
+        btn.innerText = 'Bul';
+        if (found) {
+          setDestination(found.lat, found.lon);
+          // center a bit
+          map.setView([found.lat, found.lon], 15);
+        } else {
+          alert('Adres bulunamadı. Lütfen daha açık bir adres deneyin.');
+        }
+      });
+
+      // Recalculate when fare / speed change
+      ['baseFare','perKm','avgSpeed'].forEach(id=>{
+        document.getElementById(id).addEventListener('change', updateCalculation);
+      });
+
+    });
+  </script>
+</body>
+</html>
