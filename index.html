@@ -1,139 +1,184 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="tr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nöbetçi24</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nöbetçi24 — Hedef Seç</title>
 
-<!-- Leaflet harita kütüphanesi -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-  html, body {
-    height: 100%;
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f5f7fa;
-  }
-  #map {
-    height: 60vh;
-    width: 100%;
-    border-radius: 10px;
-    margin-bottom: 10px;
-  }
-  .container {
-    max-width: 600px;
-    margin: 15px auto;
-    padding: 10px;
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-  }
-  button {
-    background: #007bff;
-    color: white;
-    border: none;
-    padding: 10px 15px;
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  button:hover { background: #0056b3; }
-  input { width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #ccc; }
-  .info { margin-top: 10px; font-size: 14px; }
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f4f6fb;color:#111}
+  .wrap{max-width:960px;margin:14px auto;padding:12px}
+  header{display:flex;align-items:center;gap:10px}
+  h1{font-size:18px;margin:0}
+  #map{height:60vh;border-radius:10px;border:1px solid #e6eef8;margin-top:10px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  button{background:#0f62fe;color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+  button.gray{background:#999}
+  .info{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
+  .info > div{background:#fff;padding:10px;border-radius:8px;box-shadow:0 4px 10px rgba(16,24,40,0.04)}
+  .hint{font-size:13px;color:#666;margin-top:8px}
 </style>
 </head>
 <body>
-  <div class="container">
-    <h2>🚗 Nöbetçi24 — Mesafe & Fiyat Hesaplayıcı</h2>
-    <p>Konumunu alıp gitmek istediğin yeri haritadan seç!</p>
+  <div class="wrap">
+    <header>
+      <img src="https://api.iconify.design/mdi/target.svg?color=%230f62fe" width="36" height="36" alt="">
+      <div>
+        <h1>Nöbetçi24 — Hedefi seç (sadece tıkla)</h1>
+        <div class="hint">Haritaya tıkla → hedef belirle. Eğer konum gelmezse önce haritayı kendi konumuna getir, sonra "Başlangıç olarak ayarla" bas.</div>
+      </div>
+    </header>
 
     <div id="map"></div>
 
-    <input id="address" type="text" placeholder="Adres gir (örnek: Kadıköy İstanbul)">
-    <button id="findBtn">Adres Bul</button>
-    <button id="locateBtn">Konumumu Al</button>
-    <button id="clearBtn" style="background:#999;">Temizle</button>
+    <div class="controls">
+      <button id="btnLocate">Konumumu Al (opsiyonel)</button>
+      <button id="btnSetOrigin">Başlangıç olarak ayarla (harita merkezi)</button>
+      <button id="btnClear" class="gray">Temizle Hedef</button>
+    </div>
 
     <div class="info">
-      <p>📏 Mesafe: <span id="distance">—</span></p>
-      <p>⏱ Tahmini Süre: <span id="time">—</span></p>
-      <p>💸 Tahmini Ücret: <span id="price">—</span></p>
+      <div id="distBox">📏 Mesafe: —</div>
+      <div id="timeBox">⏱ Süre: —</div>
+      <div id="priceBox">💸 Tahmini Ücret: —</div>
     </div>
+
+    <div class="hint">Not: Sadece hedef seç: haritaya tıkla. Eğer WebViewer geolocation izin vermiyorsa "Başlangıç olarak ayarla" ile haritayı başlangıç noktasına getir.</div>
   </div>
 
 <script>
-let map, userMarker, destMarker, userPos;
+/* Basit ve sağlam akış:
+ - originMarker: başlangıç noktası (geolocation ile veya kullanıcı ayarlar)
+ - destMarker: kullanıcı haritaya tıklarsa oluşturulur (tek tıklama)
+ - Kullanıcı sadece hedef seçer; origin otomatik/manuel ayarlanır.
+*/
 
-function initMap() {
-  map = L.map('map').setView([41.0082, 28.9784], 12); // İstanbul merkez
+let map, originMarker = null, destMarker = null;
+let origin = null; // {lat,lng}
+
+// fiyatlama (arkada) — isteğe göre değiştiririm
+const baseFare = 10;   // TL
+const perKm = 3.5;     // TL per km
+const avgSpeed = 20;   // km/h
+
+// init map
+function initMap(){
+  map = L.map('map', {zoomControl:true});
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© OpenStreetMap'
+    attribution: '© OpenStreetMap contributors'
   }).addTo(map);
 
-  map.on('click', e => setDestination(e.latlng));
+  // default view
+  map.setView([41.0082,28.9784],12);
+
+  // click to set destination
+  map.on('click', function(e){
+    setDestination(e.latlng);
+  });
 }
 
-function setDestination(latlng) {
+// set origin visually (draggable)
+function setOrigin(lat,lng,center=true){
+  origin = {lat: Number(lat), lng: Number(lng)};
+  if (!originMarker){
+    originMarker = L.marker([lat,lng], {draggable:true}).addTo(map).bindPopup('Başlangıç (sürükle)').openPopup();
+    originMarker.on('dragend', function(){
+      const p = originMarker.getLatLng();
+      origin = {lat: p.lat, lng: p.lng};
+      recalcAndShow();
+    });
+  } else {
+    originMarker.setLatLng([lat,lng]);
+  }
+  if (center) map.setView([lat,lng],14);
+  recalcAndShow();
+}
+
+// set destination (user taps map)
+function setDestination(latlng){
   if (destMarker) destMarker.remove();
-  destMarker = L.marker(latlng).addTo(map).bindPopup('Hedef').openPopup();
-  updateInfo();
+  destMarker = L.marker(latlng, {title:'Hedef'}).addTo(map).bindPopup('Hedef').openPopup();
+  recalcAndShow();
 }
 
-function updateInfo() {
-  if (!userPos || !destMarker) return;
-
-  const R = 6371; // km
-  const dLat = (destMarker.getLatLng().lat - userPos.lat) * Math.PI / 180;
-  const dLon = (destMarker.getLatLng().lng - userPos.lng) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(userPos.lat*Math.PI/180)*Math.cos(destMarker.getLatLng().lat*Math.PI/180)*Math.sin(dLon/2)**2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  const km = R * c;
-
-  const price = 10 + (km * 3.5);
-  const time = (km / 20) * 60; // 20 km/h varsayım
-
-  document.getElementById('distance').textContent = km.toFixed(2) + " km";
-  document.getElementById('time').textContent = Math.round(time) + " dk";
-  document.getElementById('price').textContent = price.toFixed(2) + " TL";
+// clear destination
+function clearDestination(){
+  if (destMarker) { destMarker.remove(); destMarker = null; }
+  document.getElementById('distBox').innerText = '📏 Mesafe: —';
+  document.getElementById('timeBox').innerText = '⏱ Süre: —';
+  document.getElementById('priceBox').innerText = '💸 Tahmini Ücret: —';
 }
 
-function locateUser() {
-  if (!navigator.geolocation) return alert('Tarayıcın konum özelliğini desteklemiyor!');
-  navigator.geolocation.getCurrentPosition(pos => {
-    userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-    if (userMarker) userMarker.remove();
-    userMarker = L.marker(userPos).addTo(map).bindPopup('Senin Konumun').openPopup();
-    map.setView(userPos, 14);
-    updateInfo();
-  }, err => alert('Konum alınamadı: ' + err.message));
+// haversine (km)
+function haversineKm(aLat,aLon,bLat,bLon){
+  const toRad = v => v * Math.PI / 180;
+  const R = 6371;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const A = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toRad(aLat))*Math.cos(toRad(bLat))*Math.sin(dLon/2)*Math.sin(dLon/2);
+  const C = 2 * Math.atan2(Math.sqrt(A), Math.sqrt(1-A));
+  return R * C;
 }
 
-async function findAddress() {
-  const addr = document.getElementById('address').value.trim();
-  if (!addr) return alert('Adres gir!');
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!data[0]) return alert('Adres bulunamadı!');
-  const { lat, lon } = data[0];
-  const point = L.latLng(lat, lon);
-  setDestination(point);
-  map.setView(point, 15);
+function recalcAndShow(){
+  if (!origin || !destMarker) return;
+  const d = destMarker.getLatLng();
+  const km = haversineKm(origin.lat, origin.lng, d.lat, d.lng);
+  const timeMin = (km / avgSpeed) * 60;
+  const fare = baseFare + (km * perKm);
+
+  document.getElementById('distBox').innerText = '📏 Mesafe: ' + km.toFixed(2) + ' km';
+  document.getElementById('timeBox').innerText = '⏱ Süre: ' + Math.round(timeMin) + ' dk';
+  document.getElementById('priceBox').innerText = '💸 Tahmini Ücret: ' + fare.toFixed(2) + ' TL';
 }
 
-document.getElementById('findBtn').onclick = findAddress;
-document.getElementById('locateBtn').onclick = locateUser;
-document.getElementById('clearBtn').onclick = () => {
-  if (destMarker) destMarker.remove();
-  destMarker = null;
-  document.getElementById('distance').textContent = '—';
-  document.getElementById('time').textContent = '—';
-  document.getElementById('price').textContent = '—';
-};
+// attempt geolocation
+function tryLocate(){
+  if (!navigator.geolocation){
+    alert('Tarayıcı konum desteklemiyor.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(function(pos){
+    setOrigin(pos.coords.latitude, pos.coords.longitude, true);
+  }, function(err){
+    alert('Konum alınamadı: ' + (err.message || 'izin kapalı ya da WebView desteklemiyor'));
+  }, {enableHighAccuracy:true, timeout:8000});
+}
 
-initMap();
+// set origin as current map center (useful for WebViewer)
+function setOriginToMapCenter(){
+  const c = map.getCenter();
+  setOrigin(c.lat, c.lng, false);
+  // center a little so both görülsün
+  if (destMarker) {
+    const group = L.featureGroup([originMarker, destMarker]);
+    map.fitBounds(group.getBounds().pad(0.4));
+  }
+}
+
+// events
+document.addEventListener('DOMContentLoaded', function(){
+  initMap();
+
+  document.getElementById('btnLocate').addEventListener('click', function(){
+    tryLocate();
+  });
+
+  document.getElementById('btnSetOrigin').addEventListener('click', function(){
+    setOriginToMapCenter();
+    alert('Başlangıç ayarlandı. İstersen başlangıç markerını sürükleyebilirsin.');
+  });
+
+  document.getElementById('btnClear').addEventListener('click', function(){
+    clearDestination();
+  });
+
+  // try to auto-locate on load (but silently; failure ok)
+  tryLocate();
+});
 </script>
 </body>
 </html>
