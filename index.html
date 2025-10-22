@@ -65,7 +65,13 @@ const FIXED_PRICE=20, KM_PRICE=5, AVG_SPEED=20;
 
 function initMap(){
   map=L.map('map').setView([41.0082,28.9784],12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+  // --- Modern Carto Voyager stili ---
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    maxZoom: 19
+  }).addTo(map);
 
   map.on('click',function(e){
     if(document.getElementById('step1').style.display!=='none'){
