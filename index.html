@@ -65,14 +65,13 @@ let startCoord=null, destCoord=null;
 let startAddressText="", destAddressText="";
 const FIXED_PRICE=20, KM_PRICE=5, AVG_SPEED=20;
 
-// Modern Maptiler Streets (ücretsiz, erişilebilir)
 function initMap(){
   map=L.map('map').setView([41.0082,28.9784],12);
-  L.tileLayer('https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=Get_Your_Own_Key', {
-    attribution:'&copy; <a href="https://www.maptiler.com/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
-    tileSize:512,
-    zoomOffset:-1,
-    maxZoom:20
+  // Key gerektirmeyen modern harita: Carto Voyager
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    subdomains:'abcd',
+    attribution:'&copy; <a href="https://www.carto.com/">CARTO</a> &copy; OSM',
+    maxZoom:19
   }).addTo(map);
 
   map.on('click', function(e){
@@ -81,7 +80,6 @@ function initMap(){
   });
 }
 
-// Geocoding
 async function geocode(q){
   try{
     const res=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
@@ -103,10 +101,12 @@ function setStart(lat,lng){
   startCoord={lat,lng};
   const iconStart=L.icon({iconUrl:'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', iconSize:[40,40]});
   if(!startMarker){startMarker=L.marker([lat,lng],{icon:iconStart,draggable:true}).addTo(map);
-    startMarker.on('dragend', async()=>{const p=startMarker.getLatLng(); startCoord={lat:p.lat,lng:p.lng};
-    startAddressText=await reverseGeocode(p.lat,p.lng); document.getElementById('startDisplay').innerText=startAddressText;
-    document.getElementById('btnStartNext').style.display='block'; recalcRoute();});}
-  else startMarker.setLatLng([lat,lng]);
+    startMarker.on('dragend', async()=>{
+      const p=startMarker.getLatLng(); startCoord={lat:p.lat,lng:p.lng};
+      startAddressText=await reverseGeocode(p.lat,p.lng); document.getElementById('startDisplay').innerText=startAddressText;
+      document.getElementById('btnStartNext').style.display='block'; recalcRoute();
+    });
+  } else startMarker.setLatLng([lat,lng]);
   map.setView([lat,lng],14);
   reverseGeocode(lat,lng).then(addr=>{startAddressText=addr; document.getElementById('startDisplay').innerText=addr; document.getElementById('btnStartNext').style.display='block'; recalcRoute();});
 }
