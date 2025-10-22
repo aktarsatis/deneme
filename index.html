@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nöbetçi24 — Özel Şoför Çağır</title>
 
-<!-- Leaflet CSS/JS -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -33,7 +32,7 @@ button {padding:10px; border-radius:10px; border:none; cursor:pointer; font-weig
 
   <div class="sheet" id="step1">
     <div>Başlangıç Konumunu Seç:</div>
-    <input type="text" id="startAddress" placeholder="Adres gir veya haritaya tıkla">
+    <input type="text" id="startAddress" placeholder="Adres gir">
     <button id="btnSelectStart" class="btn-primary">Konumumu Seç</button>
     <div id="startDisplay"></div>
     <button id="btnStartNext" class="btn-primary" style="display:none;">Onayla & Devam Et</button>
@@ -41,7 +40,7 @@ button {padding:10px; border-radius:10px; border:none; cursor:pointer; font-weig
 
   <div class="sheet" id="step2" style="display:none;">
     <div>Hedef Konumunu Seç:</div>
-    <input type="text" id="destAddress" placeholder="Adres gir veya haritaya tıkla">
+    <input type="text" id="destAddress" placeholder="Adres gir">
     <button id="btnDestSearch" class="btn-primary">Seç</button>
     <div id="destDisplay"></div>
     <button id="btnDestNext" class="btn-primary" style="display:none;">Onayla & Devam Et</button>
@@ -61,6 +60,7 @@ button {padding:10px; border-radius:10px; border:none; cursor:pointer; font-weig
 <script>
 let map, startMarker=null, destMarker=null;
 let startCoord=null, destCoord=null;
+let startAddressText="", destAddressText="";
 const FIXED_PRICE=20, KM_PRICE=5, AVG_SPEED=20;
 
 function initMap(){
@@ -76,18 +76,32 @@ function initMap(){
   });
 }
 
+async function reverseGeocode(lat,lng){
+  try{
+    const url=`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+    const res=await fetch(url);
+    const data=await res.json();
+    return data.display_name || `${lat.toFixed(5)},${lng.toFixed(5)}`;
+  }catch(e){ return `${lat.toFixed(5)},${lng.toFixed(5)}`;}
+}
+
 function setStart(lat,lng){
   startCoord={lat,lng};
   if(!startMarker){
     startMarker=L.marker([lat,lng],{draggable:true}).addTo(map);
-    startMarker.on('dragend',()=>{const p=startMarker.getLatLng(); startCoord={lat:p.lat,lng:p.lng}; updateStartDisplay();});
+    startMarker.on('dragend',async()=>{
+      const p=startMarker.getLatLng(); startCoord={lat:p.lat,lng:p.lng};
+      startAddressText=await reverseGeocode(p.lat,p.lng);
+      document.getElementById('startDisplay').innerText=startAddressText;
+      document.getElementById('btnStartNext').style.display='block';
+    });
   } else startMarker.setLatLng([lat,lng]);
-  updateStartDisplay();
-}
-
-function updateStartDisplay(){
-  document.getElementById('startDisplay').innerText=`Seçilen Konum: ${startCoord.lat.toFixed(5)}, ${startCoord.lng.toFixed(5)}`;
-  document.getElementById('btnStartNext').style.display='block';
+  map.setView([lat,lng],14);
+  reverseGeocode(lat,lng).then(addr=>{
+    startAddressText=addr;
+    document.getElementById('startDisplay').innerText=addr;
+    document.getElementById('btnStartNext').style.display='block';
+  });
 }
 
 function setDest(lat,lng){
@@ -95,22 +109,22 @@ function setDest(lat,lng){
   if(!destMarker){
     destMarker=L.marker([lat,lng]).addTo(map);
   } else destMarker.setLatLng([lat,lng]);
-  updateDestDisplay();
-}
-
-function updateDestDisplay(){
-  document.getElementById('destDisplay').innerText=`Seçilen Hedef: ${destCoord.lat.toFixed(5)}, ${destCoord.lng.toFixed(5)}`;
-  document.getElementById('btnDestNext').style.display='block';
+  map.setView([lat,lng],14);
+  reverseGeocode(lat,lng).then(addr=>{
+    destAddressText=addr;
+    document.getElementById('destDisplay').innerText=addr;
+    document.getElementById('btnDestNext').style.display='block';
+  });
 }
 
 async function geocode(q){
   try{
     const url='https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q);
-    const res=await fetch(url,{headers:{'Accept':'application/json'}});
+    const res=await fetch(url);
     const arr=await res.json();
-    if(arr.length>0) return {lat:parseFloat(arr[0].lat), lng:parseFloat(arr[0].lon)};
+    if(arr.length>0) return {lat:parseFloat(arr[0].lat), lng:parseFloat(arr[0].lon), display_name:arr[0].display_name};
     return null;
-  }catch(e){ return null; }
+  }catch(e){ return null;}
 }
 
 function haversineKm(lat1,lon1,lat2,lon2){
@@ -120,16 +134,6 @@ function haversineKm(lat1,lon1,lat2,lon2){
   const dLon=toRad(lon2-lon1);
   const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-
-function recalc(){
-  if(!startCoord || !destCoord) return;
-  const km=haversineKm(startCoord.lat,startCoord.lng,destCoord.lat,dCoord.lng);
-  const mins=Math.max(1,Math.round((km/AVG_SPEED)*60));
-  const price=FIXED_PRICE + Math.round(km*KM_PRICE);
-  document.getElementById('resDistance').innerText=km.toFixed(2)+' km';
-  document.getElementById('resTime').innerText=mins+' dk';
-  document.getElementById('resPrice').innerText=price+' TL';
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
@@ -143,8 +147,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 
   document.getElementById('startAddress').addEventListener('change', async()=>{
-    const result=await geocode(document.getElementById('startAddress').value);
-    if(result) setStart(result.lat,result.lng);
+    const res=await geocode(document.getElementById('startAddress').value);
+    if(res){ setStart(res.lat,res.lng); startAddressText=res.display_name; }
     else alert('Adres bulunamadı');
   });
 
@@ -155,28 +159,27 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 
   document.getElementById('btnDestSearch').addEventListener('click', async()=>{
-    const result=await geocode(document.getElementById('destAddress').value);
-    if(result) setDest(result.lat,result.lng);
+    const res=await geocode(document.getElementById('destAddress').value);
+    if(res){ setDest(res.lat,res.lng); destAddressText=res.display_name; }
     else alert('Adres bulunamadı');
   });
 
   document.getElementById('btnDestNext').addEventListener('click',()=>{
-    if(!destCoord){ alert('Hedefi seç'); return;}
+    if(!destCoord){ alert('Hedef seçilmedi'); return;}
     document.getElementById('step2').style.display='none';
     document.getElementById('step3').style.display='flex';
-    if(destCoord && startCoord){
-      const km=haversineKm(startCoord.lat,startCoord.lng,destCoord.lat,destCoord.lng);
-      const mins=Math.max(1,Math.round((km/AVG_SPEED)*60));
-      const price=FIXED_PRICE + Math.round(km*KM_PRICE);
-      document.getElementById('resDistance').innerText=km.toFixed(2)+' km';
-      document.getElementById('resTime').innerText=mins+' dk';
-      document.getElementById('resPrice').innerText=price+' TL';
-      map.fitBounds(L.featureGroup([startMarker,destMarker]).getBounds().pad(0.3));
-    }
+
+    const km=haversineKm(startCoord.lat,startCoord.lng,destCoord.lat,destCoord.lng);
+    const mins=Math.max(1,Math.round((km/AVG_SPEED)*60));
+    const price=FIXED_PRICE + Math.round(km*KM_PRICE);
+    document.getElementById('resDistance').innerText=km.toFixed(2)+' km';
+    document.getElementById('resTime').innerText=mins+' dk';
+    document.getElementById('resPrice').innerText=price+' TL';
+    map.fitBounds(L.featureGroup([startMarker,destMarker]).getBounds().pad(0.3));
   });
 
   document.getElementById('btnCallDriver').addEventListener('click',()=>{
-    alert(`Şoför çağrıldı!\nBaşlangıç: ${startCoord.lat.toFixed(5)},${startCoord.lng.toFixed(5)}\nHedef: ${destCoord.lat.toFixed(5)},${destCoord.lng.toFixed(5)}\nÜcret: ${document.getElementById('resPrice').innerText}`);
+    alert(`Şoför çağrıldı!\nBaşlangıç: ${startAddressText}\nHedef: ${destAddressText}\nÜcret: ${document.getElementById('resPrice').innerText}`);
   });
 });
 </script>
